@@ -25,7 +25,6 @@ jobs:
       run: npm ci
 
     - name: Install Playwright browsers
-      # usa tu script definido en package.json (instala con deps)
       run: npm run install:browsers
 
     - name: Clone RWA app
@@ -38,24 +37,16 @@ jobs:
     - name: Start RWA app (frontend + backend) and wait both ports
       run: |
         cd .rwa
-        # Ajustá este comando si tu repo necesita otro para levantar frontend+api
         yarn dev &> /tmp/rwa.log &
-        # Esperar ambos puertos (frontend 3000 y API 3001). Timeout aumentado.
         npx wait-on http-get://localhost:3000 http-get://localhost:3001 --timeout 120000
-
-        # Si tu repo tiene script para seedear la DB o crear usuarios de test, ejecutalo aquí.
-        # Descomentá y reemplazá según corresponda, por ejemplo:
-        # yarn seed
-        # npm run seed
 
     - name: Check that services respond (debug)
       run: |
-        echo "Front (3000) headers:"
-        curl -sS -I http://localhost:3000 || true
-        echo "API (3001) GET / (o /health):"
-        curl -sS http://localhost:3001 || echo "API no responde o ruta base vacía"
-        echo "Show last lines of RWA log (if any):"
-        tail -n 200 /tmp/rwa.log || true
+        echo "Front (3000):"
+        curl -sI http://localhost:3000 || true
+        echo "API (3001):"
+        curl -sI http://localhost:3001 || true
+        tail -n 50 /tmp/rwa.log || true
 
     - name: Set environment variables (increase expect timeout)
       run: |
@@ -80,7 +71,7 @@ jobs:
         PW_TIMEOUT: 60000
         PW_EXPECT_TIMEOUT: 20000
 
-    - name: Run UI tests (Playwright) and generate reports
+    - name: Run UI tests (Playwright)
       run: npm run test:ui
       env:
         BASE_URL: http://localhost:3000
@@ -88,24 +79,14 @@ jobs:
         PW_TIMEOUT: 60000
         PW_EXPECT_TIMEOUT: 20000
 
-    - name: Show workspace and reports (debug)
+    - name: Show reports (debug)
       if: always()
       run: |
-        echo "PWD: $(pwd)"
-        echo "Root listing:"
-        ls -la
-        echo "Recursive listing (partial):"
-        ls -R | sed -n '1,500p' || true
-        echo "Look for test-results and playwright-report directories:"
-        find . -type d -name 'test-results' -o -name 'playwright-report' -maxdepth 6 -print || true
-        echo "Contents of test-results (if exists):"
-        ls -la test-results || true
-        echo "Contents of playwright-report (if exists):"
+        echo "Listing:"
+        find . -type d -name 'playwright-report' -maxdepth 5 || true
         ls -la playwright-report || true
-        echo "Tail RWA log:"
-        tail -n 400 /tmp/rwa.log || true
 
-    - name: Upload Playwright report
+    - name: Upload Playwright combined report
       if: always()
       uses: actions/upload-artifact@v4
       with:
@@ -124,18 +105,6 @@ jobs:
         path: |
           test-results/**
           **/test-results/**
-          playwright-report/**
-        retention-days: 30
-        if-no-files-found: warn
-
-    - name: Upload traces and videos (extra)
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: playwright-artifacts
-        path: |
-          test-results/**
-          playwright-report/**
         retention-days: 30
         if-no-files-found: warn
 
@@ -161,7 +130,7 @@ jobs:
       - name: Install Playwright browsers (chromium only)
         run: npx playwright install chromium --with-deps
 
-      - name: Download & extract RWA artifact (or clone if you prefer)
+      - name: Download & extract RWA artifact (or clone)
         run: |
           git clone https://github.com/cypress-io/cypress-realworld-app .rwa
           cd .rwa
@@ -174,7 +143,7 @@ jobs:
           yarn dev &> /tmp/rwa.log &
           npx wait-on http-get://localhost:3000 --timeout 60000
 
-      - name: Run regression tests (use el script correcto)
+      - name: Run regression tests
         run: npm run test:ci
         env:
           BASE_URL: http://localhost:3000
@@ -188,6 +157,7 @@ jobs:
       contents: read
       pages: write
       id-token: write
+
     steps:
       - name: Download playwright-report artifact
         uses: actions/download-artifact@v4
@@ -195,35 +165,32 @@ jobs:
           name: playwright-report
           path: site
 
-      - name: Show downloaded files (debug)
+      - name: Prepare site content
         run: |
-          echo "Site dir listing:"
+          echo "Listing site dir:"
           ls -la site || true
-          # Si artifact contiene carpeta playwright-report, movemos su contenido
+          mkdir -p site/_site
           if [ -d "site/playwright-report" ]; then
-            rm -rf site/_site || true
-            mv site/playwright-report site/_site || true
+            mv site/playwright-report/* site/_site/ || true
           else
-            # si el artifact ya está contenido plano, movemos a _site
-            mkdir -p site/_site
             mv site/* site/_site/ || true
           fi
-          echo "Final _site contents:"
+          echo "Final site content:"
           ls -la site/_site || true
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
       - name: Upload artifact for Pages
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: site/_site
 
       - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
 
-
-      - name: Show Pages URL (info)
+      - name: Show Pages URL
         run: |
-          echo "La URL suele ser: https://$GITHUB_REPOSITORY_OWNER.github.io/$GITHUB_REPOSITORY"
-          echo "Verifica Settings → Pages si no aparece inmediatamente."
+          echo "✅ Report published at:"
+          echo "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY}/"
