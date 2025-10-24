@@ -1,0 +1,23 @@
+{
+  "name": "cypress-realworld-app-tests",
+  "version": "1.0.0",
+  "description": "Test suite for Cypress Real-World App - Junior and Semi-Senior levels",
+  "scripts": {
+    "test:ui": "playwright test tests/ui --reporter=html",
+    "test:api": "playwright test tests/api --reporter=html",
+    "test:smoke": "playwright test tests/ui/smoke.spec.ts --reporter=html",
+    "report": "playwright show-report",
+    "ci": "playwright test tests/api tests/ui --reporter=html",
+    "install:browsers": "npx playwright install --with-deps"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^24.9.1",
+    "dotenv": "^16.4.5",
+    "typescript": "^5.9.3",
+    "wait-on": "^7.2.0"
+  },
+  "engines": {
+    "node": "^18.0.0 || ^20.0.0"
+  }
+}
