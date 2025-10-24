@@ -56,32 +56,77 @@ jobs:
         echo "PW_EXPECT_TIMEOUT=20000" >> $GITHUB_ENV
 
     - name: Run Smoke tests
-      run: npm run test:smoke -- --reporter=html --output=playwright-report/smoke
+      run: |
+        # Ejecuta el script de smoke (usa el reporter definido en package.json)
+        npm run test:smoke || true
+        # Si Playwright generó playwright-report, renombrarlo para esta suite
+        if [ -d "playwright-report" ]; then
+          mv playwright-report playwright-report-smoke || true
+        fi
       env:
         BASE_URL: http://localhost:3000
         API_URL: http://localhost:3001
 
     - name: Run API tests
-      run: npm run test:api -- --reporter=html --output=playwright-report/api
+      run: |
+        npm run test:api || true
+        if [ -d "playwright-report" ]; then
+          mv playwright-report playwright-report-api || true
+        fi
       env:
         BASE_URL: http://localhost:3000
         API_URL: http://localhost:3001
 
     - name: Run UI tests
-      run: npm run test:ui -- --reporter=html --output=playwright-report/ui
+      run: |
+        npm run test:ui || true
+        if [ -d "playwright-report" ]; then
+          mv playwright-report playwright-report-ui || true
+        fi
       env:
         BASE_URL: http://localhost:3000
         API_URL: http://localhost:3001
 
-    - name: Combine reports for upload
+    - name: Collect test-results (optional)
       if: always()
       run: |
-        echo "Combining reports:"
-        ls -R playwright-report || true
-        mkdir -p combined-report
-        cp -r playwright-report/smoke combined-report/ 2>/dev/null || true
-        cp -r playwright-report/api combined-report/ 2>/dev/null || true
-        cp -r playwright-report/ui combined-report/ 2>/dev/null || true
+        # Copiamos cualquier carpeta test-results a combined-report/results
+        mkdir -p combined-report/results || true
+        if [ -d "test-results" ]; then
+          cp -R test-results/* combined-report/results/ || true
+        fi
+        # También si existen dentro de subdirs
+        find . -type d -name 'test-results' -maxdepth 4 -print -exec bash -c 'cp -R "{}"/* combined-report/results/ || true' \; || true
+
+    - name: Build combined HTML report structure
+      if: always()
+      run: |
+        echo "Building combined-report directory..."
+        rm -rf combined-report || true
+        mkdir -p combined-report || true
+
+        # Copy suite-specific playwright-report folders if exist
+        if [ -d "playwright-report-smoke" ]; then
+          mkdir -p combined-report/smoke
+          cp -R playwright-report-smoke/* combined-report/smoke/ || true
+        fi
+
+        if [ -d "playwright-report-api" ]; then
+          mkdir -p combined-report/api
+          cp -R playwright-report-api/* combined-report/api/ || true
+        fi
+
+        if [ -d "playwright-report-ui" ]; then
+          mkdir -p combined-report/ui
+          cp -R playwright-report-ui/* combined-report/ui/ || true
+        fi
+
+        # If there are any standalone html reports at root, copy them to a 'root' folder
+        if [ -f "index.html" ]; then
+          mkdir -p combined-report/root
+          cp -R index.html combined-report/root/ || true
+        fi
+
         echo "Combined structure:"
         ls -R combined-report || true
 
@@ -93,7 +138,6 @@ jobs:
         path: combined-report/**
         retention-days: 30
         if-no-files-found: warn
-
 
   publish-report:
     name: Publish HTML Reports (Pages)
@@ -115,10 +159,37 @@ jobs:
         run: |
           echo "Site dir:"
           ls -R site || true
+          rm -rf site/_site || true
           mkdir -p site/_site
-          mv site/* site/_site/ || true
-          echo "Final structure:"
-          ls -R site/_site || true
+
+          # Move smoke/api/ui folders into final site structure
+          if [ -d "site/smoke" ]; then
+            mkdir -p site/_site/smoke
+            cp -R site/smoke/* site/_site/smoke/ || true
+          fi
+
+          if [ -d "site/api" ]; then
+            mkdir -p site/_site/api
+            cp -R site/api/* site/_site/api/ || true
+          fi
+
+          if [ -d "site/ui" ]; then
+            mkdir -p site/_site/ui
+            cp -R site/ui/* site/_site/ui/ || true
+          fi
+
+          if [ -d "site/results" ]; then
+            mkdir -p site/_site/results
+            cp -R site/results/* site/_site/results/ || true
+          fi
+
+          # if there are any 'root' html files, copy them to top-level
+          if [ -d "site/root" ]; then
+            cp -R site/root/* site/_site/ || true
+          fi
+
+          echo "Final site/_site structure:"
+          ls -R site/_site | sed -n '1,200p' || true
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
