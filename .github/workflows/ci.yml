@@ -25,7 +25,8 @@ jobs:
       run: npm ci
 
     - name: Install Playwright browsers
-      run: npx playwright install --with-deps
+      # usa tu script definido en package.json (instala con deps)
+      run: npm run install:browsers
 
     - name: Clone RWA app
       run: |
@@ -42,9 +43,10 @@ jobs:
         # Esperar ambos puertos (frontend 3000 y API 3001). Timeout aumentado.
         npx wait-on http-get://localhost:3000 http-get://localhost:3001 --timeout 120000
 
-        # Si tu repo tiene script para seedear la DB/construir usuarios de test, ejecutalo aquí.
-        # Ejemplo (descomentar si existe):
+        # Si tu repo tiene script para seedear la DB o crear usuarios de test, ejecutalo aquí.
+        # Descomentá y reemplazá según corresponda, por ejemplo:
         # yarn seed
+        # npm run seed
 
     - name: Check that services respond (debug)
       run: |
@@ -79,9 +81,7 @@ jobs:
         PW_EXPECT_TIMEOUT: 20000
 
     - name: Run UI tests (Playwright) and generate reports
-      run: |
-        # Ejecuta Playwright y permite que falle (sin || true)
-        npx playwright test --reporter=html --reporter=junit --output=test-results --retries=1 --workers=1
+      run: npm run test:ui:ci
       env:
         BASE_URL: http://localhost:3000
         API_URL: http://localhost:3001
