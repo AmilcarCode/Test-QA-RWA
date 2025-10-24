@@ -10,112 +10,145 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    
+
     steps:
     - name: Checkout tests repo
       uses: actions/checkout@v4
-      
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
         cache: 'npm'
-        
+
     - name: Install test dependencies
       run: npm ci
-      
+
     - name: Install Playwright browsers
       run: npx playwright install --with-deps
-      
+
     - name: Clone RWA app
       run: |
         git clone https://github.com/cypress-io/cypress-realworld-app .rwa
         cd .rwa
         corepack enable || true
         yarn install --frozen-lockfile
-        
+
     - name: Start RWA app
       run: |
         cd .rwa
-        yarn dev &
+        yarn dev &> /tmp/rwa.log &
         npx wait-on http-get://localhost:3000 --timeout 60000
-        
+
     - name: Set environment variables
       run: |
         echo "BASE_URL=http://localhost:3000" >> $GITHUB_ENV
         echo "API_URL=http://localhost:3001" >> $GITHUB_ENV
         echo "PW_TIMEOUT=30000" >> $GITHUB_ENV
         echo "PW_EXPECT_TIMEOUT=8000" >> $GITHUB_ENV
-        
+
     - name: Run Smoke tests
       run: npm run test:smoke
-      
+      env:
+        BASE_URL: http://localhost:3000
+        API_URL: http://localhost:3001
+
     - name: Run API tests
       run: npm run test:api
-      
-    - name: Run UI tests
-      run: npm run test:ui
-      
+      env:
+        BASE_URL: http://localhost:3000
+        API_URL: http://localhost:3001
+
+    # <-- Reemplazamos el step de UI por uno que fuerza a Playwright a generar HTML + JUnit y outputs -->
+    - name: Run UI tests (Playwright) and generate reports
+      run: |
+        # Ejecuta Playwright con dos reporters:
+        #  - html  -> genera carpeta "playwright-report"
+        #  - junit -> genera XML(s) dentro de "test-results"
+        # Además usamos --output para que videos/traces/quiere se guarden en test-results
+        npx playwright test --reporter=html --reporter=junit --output=test-results --config=playwright.config.ts || true
+      env:
+        BASE_URL: http://localhost:3000
+        API_URL: http://localhost:3001
+
+    # Debug: mostrar contenido del workspace y de las carpetas de reportes
+    - name: Show workspace and reports (debug)
+      run: |
+        echo "PWD: $(pwd)"
+        echo "Root listing:"
+        ls -la
+        echo "Recursive listing:"
+        ls -R || true
+        echo "List test-results (if exists):"
+        ls -la test-results || echo "no test-results folder"
+        echo "List playwright-report (if exists):"
+        ls -la playwright-report || echo "no playwright-report folder"
+        echo "Show last lines of RWA log (if any):"
+        tail -n 200 /tmp/rwa.log || true
+
     - name: Upload Playwright report
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: playwright-report
-        path: playwright-report/
+        path: |
+          playwright-report/**
         retention-days: 30
-        
-    - name: Upload test results
+
+    - name: Upload test results (JUnit, videos, traces)
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: test-results
-        path: test-results/
+        path: |
+          test-results/**
+          **/test-results/**     # por si quedó en subcarpeta
         retention-days: 30
-        
-    - name: Upload traces and videos
+
+    - name: Upload traces and videos (extra)
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: playwright-artifacts
         path: |
-          test-results/
-          playwright-report/
+          test-results/**
+          playwright-report/**
         retention-days: 30
 
   smoke-only:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: github.event_name == 'pull_request'
-    
+
     steps:
     - name: Checkout tests repo
       uses: actions/checkout@v4
-      
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
         cache: 'npm'
-        
+
     - name: Install test dependencies
       run: npm ci
-      
-    - name: Install Playwright browsers
+
+    - name: Install Playwright browsers (chromium only)
       run: npx playwright install chromium --with-deps
-      
+
     - name: Clone RWA app
       run: |
         git clone https://github.com/cypress-io/cypress-realworld-app .rwa
         cd .rwa
         corepack enable || true
         yarn install --frozen-lockfile
-        
+
     - name: Start RWA app
       run: |
         cd .rwa
-        yarn dev &
+        yarn dev &> /tmp/rwa.log &
         npx wait-on http-get://localhost:3000 --timeout 60000
-        
+
     - name: Run Smoke tests only
       run: npm run test:smoke
       env:
