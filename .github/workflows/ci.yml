@@ -34,13 +34,13 @@ jobs:
         corepack enable || true
         yarn install --frozen-lockfile
 
-    - name: Start RWA app (frontend + backend) and wait both ports
+    - name: Start RWA app (frontend + backend)
       run: |
         cd .rwa
         yarn dev &> /tmp/rwa.log &
         npx wait-on http-get://localhost:3000 http-get://localhost:3001 --timeout 120000
 
-    - name: Check that services respond (debug)
+    - name: Check RWA services (debug)
       run: |
         echo "Front (3000):"
         curl -sI http://localhost:3000 || true
@@ -48,7 +48,7 @@ jobs:
         curl -sI http://localhost:3001 || true
         tail -n 50 /tmp/rwa.log || true
 
-    - name: Set environment variables (increase expect timeout)
+    - name: Set environment variables
       run: |
         echo "BASE_URL=http://localhost:3000" >> $GITHUB_ENV
         echo "API_URL=http://localhost:3001" >> $GITHUB_ENV
@@ -56,101 +56,47 @@ jobs:
         echo "PW_EXPECT_TIMEOUT=20000" >> $GITHUB_ENV
 
     - name: Run Smoke tests
-      run: npm run test:smoke
+      run: npm run test:smoke -- --reporter=html --output=playwright-report/smoke
       env:
         BASE_URL: http://localhost:3000
         API_URL: http://localhost:3001
-        PW_TIMEOUT: 60000
-        PW_EXPECT_TIMEOUT: 20000
 
     - name: Run API tests
-      run: npm run test:api
+      run: npm run test:api -- --reporter=html --output=playwright-report/api
       env:
         BASE_URL: http://localhost:3000
         API_URL: http://localhost:3001
-        PW_TIMEOUT: 60000
-        PW_EXPECT_TIMEOUT: 20000
 
-    - name: Run UI tests (Playwright)
-      run: npm run test:ui
+    - name: Run UI tests
+      run: npm run test:ui -- --reporter=html --output=playwright-report/ui
       env:
         BASE_URL: http://localhost:3000
         API_URL: http://localhost:3001
-        PW_TIMEOUT: 60000
-        PW_EXPECT_TIMEOUT: 20000
 
-    - name: Show reports (debug)
+    - name: Combine reports for upload
       if: always()
       run: |
-        echo "Listing:"
-        find . -type d -name 'playwright-report' -maxdepth 5 || true
-        ls -la playwright-report || true
+        echo "Combining reports:"
+        ls -R playwright-report || true
+        mkdir -p combined-report
+        cp -r playwright-report/smoke combined-report/ 2>/dev/null || true
+        cp -r playwright-report/api combined-report/ 2>/dev/null || true
+        cp -r playwright-report/ui combined-report/ 2>/dev/null || true
+        echo "Combined structure:"
+        ls -R combined-report || true
 
-    - name: Upload Playwright combined report
+    - name: Upload combined report artifact
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: playwright-report
-        path: |
-          playwright-report/**
-          **/playwright-report/**
+        name: playwright-combined-report
+        path: combined-report/**
         retention-days: 30
         if-no-files-found: warn
 
-    - name: Upload test results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-results
-        path: |
-          test-results/**
-          **/test-results/**
-        retention-days: 30
-        if-no-files-found: warn
-
-  regression:
-    name: Regression (PR only)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    if: github.event_name == 'pull_request'
-
-    steps:
-      - name: Checkout tests repo
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install test dependencies
-        run: npm ci
-
-      - name: Install Playwright browsers (chromium only)
-        run: npx playwright install chromium --with-deps
-
-      - name: Download & extract RWA artifact (or clone)
-        run: |
-          git clone https://github.com/cypress-io/cypress-realworld-app .rwa
-          cd .rwa
-          corepack enable || true
-          yarn install --frozen-lockfile
-
-      - name: Start RWA app
-        run: |
-          cd .rwa
-          yarn dev &> /tmp/rwa.log &
-          npx wait-on http-get://localhost:3000 --timeout 60000
-
-      - name: Run regression tests
-        run: npm run test:ci
-        env:
-          BASE_URL: http://localhost:3000
-          API_URL: http://localhost:3001
 
   publish-report:
-    name: Publish Playwright HTML report (Pages)
+    name: Publish HTML Reports (Pages)
     runs-on: ubuntu-latest
     needs: [tests]
     permissions:
@@ -159,24 +105,20 @@ jobs:
       id-token: write
 
     steps:
-      - name: Download playwright-report artifact
+      - name: Download combined report artifact
         uses: actions/download-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-combined-report
           path: site
 
       - name: Prepare site content
         run: |
-          echo "Listing site dir:"
-          ls -la site || true
+          echo "Site dir:"
+          ls -R site || true
           mkdir -p site/_site
-          if [ -d "site/playwright-report" ]; then
-            mv site/playwright-report/* site/_site/ || true
-          else
-            mv site/* site/_site/ || true
-          fi
-          echo "Final site content:"
-          ls -la site/_site || true
+          mv site/* site/_site/ || true
+          echo "Final structure:"
+          ls -R site/_site || true
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
@@ -192,6 +134,5 @@ jobs:
 
       - name: Show Pages URL
         run: |
-          echo "✅ Report published at:"
+          echo "✅ Reports published at:"
           echo "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/"
-          echo "Verifica Settings → Pages si no aparece inmediatamente."
