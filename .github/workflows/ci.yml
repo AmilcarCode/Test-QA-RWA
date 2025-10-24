@@ -193,4 +193,5 @@ jobs:
       - name: Show Pages URL
         run: |
           echo "✅ Report published at:"
-          echo "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY}/"
+          echo "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/"
+          echo "Verifica Settings → Pages si no aparece inmediatamente."
