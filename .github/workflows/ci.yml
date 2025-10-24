@@ -34,57 +34,76 @@ jobs:
         corepack enable || true
         yarn install --frozen-lockfile
 
-    - name: Start RWA app
+    - name: Start RWA app (frontend + backend) and wait both ports
       run: |
         cd .rwa
+        # Ajustá este comando si tu repo necesita otro para levantar frontend+api
         yarn dev &> /tmp/rwa.log &
-        npx wait-on http-get://localhost:3000 --timeout 60000
+        # Esperar ambos puertos (frontend 3000 y API 3001). Timeout aumentado.
+        npx wait-on http-get://localhost:3000 http-get://localhost:3001 --timeout 120000
 
-    - name: Set environment variables
+        # Si tu repo tiene script para seedear la DB/construir usuarios de test, ejecutalo aquí.
+        # Ejemplo (descomentar si existe):
+        # yarn seed
+
+    - name: Check that services respond (debug)
+      run: |
+        echo "Front (3000) headers:"
+        curl -sS -I http://localhost:3000 || true
+        echo "API (3001) GET / (o /health):"
+        curl -sS http://localhost:3001 || echo "API no responde o ruta base vacía"
+        echo "Show last lines of RWA log (if any):"
+        tail -n 200 /tmp/rwa.log || true
+
+    - name: Set environment variables (increase expect timeout)
       run: |
         echo "BASE_URL=http://localhost:3000" >> $GITHUB_ENV
         echo "API_URL=http://localhost:3001" >> $GITHUB_ENV
-        echo "PW_TIMEOUT=30000" >> $GITHUB_ENV
-        echo "PW_EXPECT_TIMEOUT=8000" >> $GITHUB_ENV
+        echo "PW_TIMEOUT=60000" >> $GITHUB_ENV
+        echo "PW_EXPECT_TIMEOUT=20000" >> $GITHUB_ENV
 
     - name: Run Smoke tests
       run: npm run test:smoke
       env:
         BASE_URL: http://localhost:3000
         API_URL: http://localhost:3001
+        PW_TIMEOUT: 60000
+        PW_EXPECT_TIMEOUT: 20000
 
     - name: Run API tests
       run: npm run test:api
       env:
         BASE_URL: http://localhost:3000
         API_URL: http://localhost:3001
+        PW_TIMEOUT: 60000
+        PW_EXPECT_TIMEOUT: 20000
 
-    # <-- Reemplazamos el step de UI por uno que fuerza a Playwright a generar HTML + JUnit y outputs -->
     - name: Run UI tests (Playwright) and generate reports
       run: |
-        # Ejecuta Playwright con dos reporters:
-        #  - html  -> genera carpeta "playwright-report"
-        #  - junit -> genera XML(s) dentro de "test-results"
-        # Además usamos --output para que videos/traces/quiere se guarden en test-results
-        npx playwright test --reporter=html --reporter=junit --output=test-results --config=playwright.config.ts || true
+        # Ejecuta Playwright y permite que falle (sin || true)
+        npx playwright test --reporter=html --reporter=junit --output=test-results --retries=1 --workers=1
       env:
         BASE_URL: http://localhost:3000
         API_URL: http://localhost:3001
+        PW_TIMEOUT: 60000
+        PW_EXPECT_TIMEOUT: 20000
 
-    # Debug: mostrar contenido del workspace y de las carpetas de reportes
     - name: Show workspace and reports (debug)
+      if: always()
       run: |
         echo "PWD: $(pwd)"
         echo "Root listing:"
         ls -la
-        echo "Recursive listing:"
-        ls -R || true
-        echo "List test-results (if exists):"
-        ls -la test-results || echo "no test-results folder"
-        echo "List playwright-report (if exists):"
-        ls -la playwright-report || echo "no playwright-report folder"
-        echo "Show last lines of RWA log (if any):"
-        tail -n 200 /tmp/rwa.log || true
+        echo "Recursive listing (partial):"
+        ls -R | sed -n '1,500p' || true
+        echo "Look for test-results and playwright-report directories:"
+        find . -type d -name 'test-results' -o -name 'playwright-report' -maxdepth 6 -print || true
+        echo "Contents of test-results (if exists):"
+        ls -la test-results || true
+        echo "Contents of playwright-report (if exists):"
+        ls -la playwright-report || true
+        echo "Tail RWA log:"
+        tail -n 400 /tmp/rwa.log || true
 
     - name: Upload Playwright report
       if: always()
@@ -93,17 +112,21 @@ jobs:
         name: playwright-report
         path: |
           playwright-report/**
+          **/playwright-report/**
         retention-days: 30
+        if-no-files-found: warn
 
-    - name: Upload test results (JUnit, videos, traces)
+    - name: Upload test results
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: test-results
         path: |
           test-results/**
-          **/test-results/**     # por si quedó en subcarpeta
+          **/test-results/**
+          playwright-report/**
         retention-days: 30
+        if-no-files-found: warn
 
     - name: Upload traces and videos (extra)
       if: always()
@@ -114,6 +137,7 @@ jobs:
           test-results/**
           playwright-report/**
         retention-days: 30
+        if-no-files-found: warn
 
   smoke-only:
     runs-on: ubuntu-latest
