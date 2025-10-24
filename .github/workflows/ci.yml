@@ -81,7 +81,7 @@ jobs:
         PW_EXPECT_TIMEOUT: 20000
 
     - name: Run UI tests (Playwright) and generate reports
-      run: npm run test:ui:ci
+      run: npm run test:ui
       env:
         BASE_URL: http://localhost:3000
         API_URL: http://localhost:3001
@@ -139,42 +139,43 @@ jobs:
         retention-days: 30
         if-no-files-found: warn
 
-  smoke-only:
+  regression:
+    name: Regression (PR only)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: github.event_name == 'pull_request'
 
     steps:
-    - name: Checkout tests repo
-      uses: actions/checkout@v4
+      - name: Checkout tests repo
+        uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'npm'
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-    - name: Install test dependencies
-      run: npm ci
+      - name: Install test dependencies
+        run: npm ci
 
-    - name: Install Playwright browsers (chromium only)
-      run: npx playwright install chromium --with-deps
+      - name: Install Playwright browsers (chromium only)
+        run: npx playwright install chromium --with-deps
 
-    - name: Clone RWA app
-      run: |
-        git clone https://github.com/cypress-io/cypress-realworld-app .rwa
-        cd .rwa
-        corepack enable || true
-        yarn install --frozen-lockfile
+      - name: Download & extract RWA artifact (or clone if you prefer)
+        run: |
+          git clone https://github.com/cypress-io/cypress-realworld-app .rwa
+          cd .rwa
+          corepack enable || true
+          yarn install --frozen-lockfile
 
-    - name: Start RWA app
-      run: |
-        cd .rwa
-        yarn dev &> /tmp/rwa.log &
-        npx wait-on http-get://localhost:3000 --timeout 60000
+      - name: Start RWA app
+        run: |
+          cd .rwa
+          yarn dev &> /tmp/rwa.log &
+          npx wait-on http-get://localhost:3000 --timeout 60000
 
-    - name: Run Smoke tests only
-      run: npm run test:smoke
-      env:
-        BASE_URL: http://localhost:3000
-        API_URL: http://localhost:3001
+      - name: Run regression tests (use el script correcto)
+        run: npm run test:ci
+        env:
+          BASE_URL: http://localhost:3000
+          API_URL: http://localhost:3001
